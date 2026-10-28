@@ -35,12 +35,12 @@ jobs:
           java-version: 17
           cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android NDK & CMake
+      - name: Setup Android SDK, NDK & CMake
         run: |
-          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-34" "ndk;26.3.11579264" "cmake;3.31.6"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-34" "ndk;26.3.11579264" "cmake;3.31.6"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
 
       - name: Checkout XboxXBERecomp SDK
         uses: actions/checkout@v4
@@ -91,7 +91,7 @@ jobs:
             -PversionName=${{ steps.version.outputs.version_name }} \
             --stacktrace
 
-      - name: Prepare APK and Checksums
+      - name: Prepare APK and Release Notes
         id: prepare_apk
         shell: bash
         run: |
@@ -107,16 +107,40 @@ jobs:
           APK_NAME="Yu-Gi-Oh-The-Dawn-of-Destiny-${{ steps.version.outputs.tag }}.apk"
           cp "$APK_SRC" "$APK_NAME"
           sha256sum "$APK_NAME" > "$APK_NAME.sha256"
-          
+          SHA256_HASH=$(cat "$APK_NAME.sha256" | cut -d' ' -f1)
+          APK_SIZE=$(stat -c%s "$APK_NAME" | awk '{printf "%.2f MB", $1/1048576}')
+
           echo "apk_path=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "sha_path=$APK_NAME.sha256" >> "$GITHUB_OUTPUT"
-          echo "APK ready: $APK_NAME ($(stat -c%s "$APK_NAME" | awk '{printf "%.2f MB", $1/1048576}'))"
+          echo "artifact_name=Yu-Gi-Oh-The-Dawn-of-Destiny-${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
+
+          cat <<EOF > "$RUNNER_TEMP/release_notes.md"
+          ## Yu-Gi-Oh! The Dawn of Destiny (Android Port)
+
+          - **Versão:** \`${{ steps.version.outputs.tag }}\`
+          - **Build:** \`${{ github.run_number }}\`
+          - **Arquitetura:** \`arm64-v8a\`
+          - **Tamanho do APK:** $APK_SIZE
+          - **SHA256:** \`$SHA256_HASH\`
+
+          ---
+
+          ### 📱 Requisitos
+          - **Android:** 10.0+ (API 29+)
+          - **Arquitetura:** \`arm64-v8a\` (64 bits)
+          - **Vulkan:** Driver com suporte a Vulkan 1.1+
+
+          ### 🎮 Instruções de Instalação
+          1. Baixe o APK em anexo (\`$APK_NAME\`) e instale no seu dispositivo Android.
+          2. Copie a pasta do jogo original extraída do disco de Xbox ou a imagem \`.iso\` para a pasta \`YuGiOh\` na raiz do armazenamento do seu aparelho (ex: \`/sdcard/YuGiOh/\`).
+          3. Abra o jogo e conceda permissão de acesso ao armazenamento.
+          EOF
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.prepare_apk.outputs.apk_name }}
+          name: ${{ steps.prepare_apk.outputs.artifact_name }}
           path: |
             ${{ steps.prepare_apk.outputs.apk_path }}
             ${{ steps.prepare_apk.outputs.sha_path }}
@@ -126,26 +150,10 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "Yu-Gi-Oh! The Dawn of Destiny Android ${{ steps.version.outputs.tag }}"
+          body_path: ${{ runner.temp }}/release_notes.md
           files: |
             ${{ steps.prepare_apk.outputs.apk_path }}
             ${{ steps.prepare_apk.outputs.sha_path }}
-          body: |
-            ## Yu-Gi-Oh! The Dawn of Destiny (Android Port)
-            **Version:** `${{ steps.version.outputs.tag }}`
-            **Build Run:** `${{ github.run_number }}`
-            **Architecture:** `arm64-v8a`
-            
-            ### SHA256 Checksum
-            ```
-            $(cat ${{ steps.prepare_apk.outputs.sha_path }})
-            ```
-
-            ### Instalação e Requisitos
-            - **Android:** 10.0+ (API 29+)
-            - **Arquitetura:** `arm64-v8a`
-            - **Vulkan:** Suporte a Vulkan 1.1+
-            - Baixe o arquivo APK anexado nesta release e instale no seu dispositivo.
-            - Copie a pasta do jogo original ou a imagem `.iso` (Xbox original) para a pasta `YuGiOh` na raiz do seu armazenamento interno.
           draft: false
           prerelease: false
           generate_release_notes: true
