@@ -1,0 +1,37 @@
+# Gradle and Build Cache
+.gradle/
+build/
+app/build/
+app/.cxx/
+
+# Local configuration
+local.properties
+*.log
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# Dependencies fetched during build
+third_party/SDL/
+
+# Tools build artifacts
+tools/build/
+tools/xbe_recomp
+tools/xbe_symbols
+
+# SDK local symlink (handled via CMake FetchContent or sibling checkout)
+sdk
+
+# Copyrighted game executables and disc images
+assets/*.xbe
+assets/*.iso
+iso/
+*.iso
+*.xbe
+!assets/.gitkeep
+
+# OS generated files
+.DS_Store
+Thumbs.db

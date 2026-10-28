@@ -1,0 +1,28 @@
+functions 39435
+instructions 1434962
+unimplemented aaa 32
+unimplemented aad 6
+unimplemented aam 20
+unimplemented aas 16
+unimplemented arpl 15
+unimplemented bound 65
+unimplemented daa 43
+unimplemented das 26
+unimplemented enter 10
+unimplemented femms 11
+unimplemented insb 4
+unimplemented int1 7
+unimplemented into 6
+unimplemented iretd 1
+unimplemented lds 13
+unimplemented les 100
+unimplemented lldt 1
+unimplemented lss 1
+unimplemented outsb 6
+unimplemented outsd 2
+unimplemented pfadd 41
+unimplemented pfmul 49
+unimplemented prefetch 5
+unimplemented salc 1
+unimplemented sldt 5
+unimplemented str 1
