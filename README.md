@@ -5,6 +5,7 @@
 [![Architecture: arm64-v8a](https://img.shields.io/badge/Architecture-arm64--v8a-blue.svg)]()
 [![Renderer: Vulkan](https://img.shields.io/badge/Graphics-Vulkan%201.1-orange.svg)]()
 [![Latest Release](https://img.shields.io/github/v/release/WINDROID-EMU/Yu-Gi-Oh-The-Dawn-of-Destiny?include_prereleases&label=Release)](https://github.com/WINDROID-EMU/Yu-Gi-Oh-The-Dawn-of-Destiny/releases/latest)
+[![download do jogo] https://4br.me/YUGIOH-XBOX
 
 Port nativo para Android de **Yu-Gi-Oh! The Dawn of Destiny** (lançado originalmente para o Xbox clássico em 2004), baseado em **recompilação estática** de x86 para binário nativo `arm64-v8a`.
 
