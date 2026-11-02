@@ -1022,8 +1022,9 @@ void DrawFpsCounter(double fps) {
 
 void DrawUi(double fps) {
     DrawFpsCounter(fps);
+    game::DrawCheatPopup();
     ImGuiIO& io = ImGui::GetIO();
-    if (MenuOpen()) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    if (MenuOpen() || game::CheatMenuOpen()) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
     else io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     io.KeyRepeatRate = 0.1f;  // held arrows step ten times a second, ImGui's twenty is too fast for settings
     // scale the font with the output height: a phone's dense screen reads 13 px text at 540 rows to the height, the

@@ -3,6 +3,10 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <atomic>
+
+#include <SDL3/SDL.h>
+#include <imgui.h>
 
 #include "common/aspect.h"
 #include "common/options.h"
@@ -12,17 +16,206 @@
 
 namespace game {
 
-// The console's widescreen flag (XGetVideoFlags at boot, 0x0D0202, kept at 0x48099C; set from 3:2 on, native/main.cpp)
-// gives the cameras (0x0D4888, 0x0D8330) a frame 853 wide (480 * 16 / 9, at 0x427C00) for a 4:3 one's 640. It is the
-// frame's own shape here, so 19.5:9 is not 16:9 stretched
-constexpr uint32_t kVideoFlags = 0x48099C, kWideWidth = 0x427C00;
-void WidenAspect() {
+// ==============================================================================
+// CHEATS & L3 POPUP
+// ==============================================================================
+std::atomic<bool> g_cheatMenuOpen{false};
+std::atomic<bool> g_cheatInfiniteLp{false};
+std::atomic<bool> g_cheatCustomAtk{false};
+std::atomic<int>  g_cheatAtkValue{5000};
+
+constexpr uint32_t kPlayerLp = 0x0064D8A4;
+constexpr uint32_t kPlayerMaxLp = 0x0064D8A8;
+constexpr uint32_t kCardTableBase = 0x005E0548;
+constexpr uint32_t kCardCountAddr = 0x005DFC60;
+constexpr uint32_t kJumpTableBase = 0x005E17A4;
+
+static uint32_t s_origCardTable[1200] = {};
+static bool s_cardTableSaved = false;
+static int s_appliedAtk = -1;
+
+bool CheatMenuOpen() {
+    return g_cheatMenuOpen.load(std::memory_order_relaxed);
 }
 
-void ApplyGraphicsSwitches() {
+static uint32_t GetMaxCardId() {
+    // 0x005E17A4 é a tabela de ponteiros de funções da engine (index 1175).
+    // Jamais podemos acessar ou sobrescrever além de 1174!
+    uint32_t limit = (kJumpTableBase - kCardTableBase) / 4;
+    if (limit > 0) limit--; // no máximo 1174
+    if (mem::IsCommitted(kCardCountAddr)) {
+        uint32_t count = kernel::R16(kCardCountAddr);
+        if (count > 0 && count < limit) {
+            return count;
+        }
+    }
+    return 1100;
+}
+
+static bool IsMonsterCard(uint32_t entry) {
+    if (entry == 0) return false;
+    uint32_t origAtk = (entry >> 9) & 0x1FF;
+    if (origAtk == 0) return false;
+    uint32_t type = (entry >> 20) & 0x1F;
+    uint32_t subType = (entry >> 18) & 0x03;
+    uint32_t category = (entry >> 25) & 0x0F;
+    return (type < 0x15 && subType == 0 && (category == 5 || category == 6));
+}
+
+static void SaveCardTable() {
+    if (s_cardTableSaved || !mem::IsCommitted(kCardTableBase)) return;
+    uint32_t maxCards = GetMaxCardId();
+    for (uint32_t id = 1; id <= maxCards; ++id) {
+        s_origCardTable[id] = kernel::R32(kCardTableBase + id * 4);
+    }
+    s_cardTableSaved = true;
+}
+
+static void RestoreCardTable() {
+    if (!s_cardTableSaved || !mem::IsCommitted(kCardTableBase)) return;
+    uint32_t maxCards = GetMaxCardId();
+    for (uint32_t id = 1; id <= maxCards; ++id) {
+        if (s_origCardTable[id] != 0 && IsMonsterCard(s_origCardTable[id])) {
+            kernel::W32(kCardTableBase + id * 4, s_origCardTable[id]);
+        }
+    }
+    s_appliedAtk = -1;
+}
+
+static void ApplyCardAtk(int atk) {
+    if (!mem::IsCommitted(kCardTableBase)) return;
+    SaveCardTable();
+    uint32_t maxCards = GetMaxCardId();
+    uint32_t atkUnits = (uint32_t)(atk / 10);
+    // O jogo usa 9 bits para ATK / 10 (0..511), máximo 5000 ATK (500 units)
+    if (atkUnits > 500) atkUnits = 500;
+
+    for (uint32_t id = 1; id <= maxCards; ++id) {
+        uint32_t orig = s_origCardTable[id];
+        if (IsMonsterCard(orig)) {
+            uint32_t modified = (orig & ~(0x1FFu << 9)) | (atkUnits << 9);
+            kernel::W32(kCardTableBase + id * 4, modified);
+        }
+    }
+    s_appliedAtk = atk;
 }
 
 void ApplyCheats() {
+    // 1. Vida Infinita do Player
+    if (g_cheatInfiniteLp.load(std::memory_order_relaxed)) {
+        if (mem::IsCommitted(kPlayerLp)) {
+            uint32_t lp = kernel::R32(kPlayerLp);
+            if (lp > 0 && lp < 8000) {
+                kernel::W32(kPlayerLp, 8000);
+                kernel::W32(kPlayerMaxLp, 8000);
+            }
+        }
+    }
+
+    // 2. Manipulação de Ataque das Cartas
+    if (g_cheatCustomAtk.load(std::memory_order_relaxed)) {
+        int targetAtk = g_cheatAtkValue.load(std::memory_order_relaxed);
+        if (s_appliedAtk != targetAtk) {
+            ApplyCardAtk(targetAtk);
+        }
+    } else if (s_appliedAtk != -1) {
+        RestoreCardTable();
+    }
+}
+
+void DrawCheatPopup() {
+    // Detectar botão L3 do controle
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&count);
+    if (count > 0 && ids) {
+        SDL_Gamepad* pad = SDL_GetGamepadFromID(ids[0]);
+        if (pad) {
+            static bool s_lastL3 = false;
+            bool l3 = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_STICK);
+            if (l3 && !s_lastL3) {
+                g_cheatMenuOpen.store(!g_cheatMenuOpen.load());
+            }
+            s_lastL3 = l3;
+        }
+        SDL_free(ids);
+    }
+
+    // Atalho de teclado alternativo (F9 ou C)
+    ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsKeyPressed(ImGuiKey_F9) || ImGui::IsKeyPressed(ImGuiKey_C)) {
+        g_cheatMenuOpen.store(!g_cheatMenuOpen.load());
+    }
+
+    // Se o menu não estiver aberto, não desenha nada na tela
+    if (!g_cheatMenuOpen.load()) {
+        return;
+    }
+
+    // Modal / Popup de Cheats
+    ImGui::SetNextWindowSize(ImVec2(380, 310), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f - 190, io.DisplaySize.y * 0.5f - 155), ImGuiCond_FirstUseEver);
+
+    bool open = g_cheatMenuOpen.load();
+    if (ImGui::Begin("PAINEL DE CHEATS (L3)", &open, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.2f, 1.0f), "YU-GI-OH! THE DAWN OF DESTINY");
+        ImGui::Separator();
+
+        // Cheats de Vida (LP)
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Vida do Jogador (LP):");
+
+        bool infLp = g_cheatInfiniteLp.load();
+        if (ImGui::Checkbox("Vida Infinita (Travar em 8000 LP)", &infLp)) {
+            g_cheatInfiniteLp.store(infLp);
+        }
+
+        if (ImGui::Button("Restaurar para 8000 LP", ImVec2(170, 30))) {
+            if (mem::IsCommitted(kPlayerLp)) {
+                kernel::W32(kPlayerLp, 8000);
+                kernel::W32(kPlayerMaxLp, 8000);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Definir 99999 LP", ImVec2(170, 30))) {
+            if (mem::IsCommitted(kPlayerLp)) {
+                kernel::W32(kPlayerLp, 99999);
+                kernel::W32(kPlayerMaxLp, 99999);
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // Cheats de Ataque das Cartas
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Ataque das Cartas (ATK):");
+        bool custAtk = g_cheatCustomAtk.load();
+        if (ImGui::Checkbox("Modificar Ataque de Todas as Cartas", &custAtk)) {
+            g_cheatCustomAtk.store(custAtk);
+        }
+
+        if (custAtk) {
+            int atkVal = g_cheatAtkValue.load();
+            if (ImGui::SliderInt("Valor ATK", &atkVal, 500, 5000, "%d ATK")) {
+                g_cheatAtkValue.store(atkVal);
+            }
+            if (ImGui::Button("3000 ATK (Dragão Branco)", ImVec2(170, 28))) {
+                g_cheatAtkValue.store(3000);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("5000 ATK (Máximo)", ImVec2(170, 28))) {
+                g_cheatAtkValue.store(5000);
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        if (ImGui::Button("Fechar (L3)", ImVec2(-1, 35))) {
+            open = false;
+        }
+    }
+    ImGui::End();
+    g_cheatMenuOpen.store(open);
 }
 
 // The movies' screens skip on A or START: FEAnyMovie (0x116230, the FE's and the story's), InGameAnyMovie (0x131A30)

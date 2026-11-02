@@ -55,6 +55,8 @@ void WaitWhileUnfocused();  // native/game_host.cpp: game thread, before the pre
 void WidenAspect();         // src/game/game.cpp: game thread, at each present
 void ApplyGraphicsSwitches();  // src/game/game.cpp: game thread, at each present
 void ApplyCheats();            // src/game/game.cpp: game thread, at each present
+bool CheatMenuOpen();          // src/game/game.cpp: cheat popup is open
+void DrawCheatPopup();         // src/game/game.cpp: renders cheat popup via ImGui
 bool Racing();    // src/game/game.cpp, any thread: the game flow is in a race (free roam too), not loading or the front end
 
 }  // namespace game
